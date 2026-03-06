@@ -314,7 +314,15 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations {
         terminalDelegate?.scrolled(source: self, position: scrollPosition)
     }
     
+    static func shouldClearSelectionOnLinefeed(allowMouseReporting: Bool, mouseMode: Terminal.MouseMode) -> Bool {
+        allowMouseReporting && mouseMode != .off
+    }
+
     open func linefeed(source: Terminal) {
+        guard Self.shouldClearSelectionOnLinefeed(
+            allowMouseReporting: allowMouseReporting,
+            mouseMode: terminal.mouseMode
+        ) else { return }
         selection.selectNone()
     }
     
