@@ -689,7 +689,6 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     override public func draw (_ dirtyRect: NSRect) {
-        guard !bounds.isEmpty else { return }
 #if canImport(MetalKit)
         if metalView != nil {
             return
@@ -698,7 +697,6 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         guard let currentContext = getCurrentGraphicsContext() else {
             return
         }
-        currentContext.clip(to: bounds)
         drawTerminalContents (dirtyRect: dirtyRect, context: currentContext, bufferOffset: terminal.displayBuffer.yDisp)
     }
     
@@ -714,7 +712,6 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
 
     open override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        layer?.masksToBounds = true
         updateScrollerFrame()
         updateProgressBarFrame()
         guard cellDimension != nil else { return }
