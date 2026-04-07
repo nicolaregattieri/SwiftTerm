@@ -183,7 +183,13 @@ extension TerminalView {
     func processSizeChange (newSize: CGSize) -> Bool {
         let newRows = Int (newSize.height / cellDimension.height)
         let newCols = Int (getEffectiveWidth (size: newSize) / cellDimension.width)
-        
+
+        // Guard against degenerate sizes from SwiftUI layout transitions.
+        // During NSViewRepresentable reattach, SwiftUI can set frame to near-zero
+        // which produces cols <= 0 or rows <= 0. Resizing to those values
+        // destroys the terminal buffer (especially alt buffer for TUI apps).
+        guard newCols > 0, newRows > 0 else { return false }
+
         if newCols != terminal.cols || newRows != terminal.rows {
             selection.active = false
             terminal.resize (cols: newCols, rows: newRows)
