@@ -2071,7 +2071,8 @@ open class Terminal {
         let param = max (pars.count > 0 ? pars [0] : 1, 1)
         let buffer = self.buffer
         var top = buffer.scrollTop
-        
+
+        let yBefore = buffer.y
         if buffer.y < top {
             top = 0
         }
@@ -2084,6 +2085,7 @@ open class Terminal {
         if buffer.x >= cols {
                 buffer.x -= 1
         }
+        TuiDebug.log("CUU", "param=\(param) yBefore=\(yBefore) yAfter=\(buffer.y) x=\(buffer.x) yBase=\(buffer.yBase) scrollTop=\(buffer.scrollTop) scrollBottom=\(buffer.scrollBottom) alt=\(isCurrentBufferAlternate)")
     }
     
     //
@@ -5176,7 +5178,24 @@ open class Terminal {
     }
     
     var blankLine: BufferLine = BufferLine(cols: 0)
-    
+
+    /// Cheap cell-by-cell equality used by `scroll()`'s dedup path. Treats two rows as
+    /// visually identical when every cell has the same code, attribute, and width.
+    /// Payload (grapheme-cluster pointer) is ignored — if two rows agree on code+attribute
+    /// for every cell they render the same pixels, which is the whole point.
+    @inline(__always)
+    private func bufferLinesVisuallyEqual(_ a: BufferLine, _ b: BufferLine, cols: Int) -> Bool {
+        if a.count < cols || b.count < cols { return false }
+        for i in 0..<cols {
+            let ca = a[i]
+            let cb = b[i]
+            if ca.code != cb.code { return false }
+            if ca.width != cb.width { return false }
+            if ca.attribute != cb.attribute { return false }
+        }
+        return true
+    }
+
     public func scroll (isWrapped: Bool = false)
     {
         let buffer = self.buffer
@@ -5186,6 +5205,52 @@ open class Terminal {
         let bMarginLeft = buffer.marginLeft
         let bMarginRight = buffer.marginRight
         let hasScrollback = buffer.hasScrollback
+        TuiDebug.log("SCROLL", "isWrapped=\(isWrapped) y=\(buffer.y) x=\(buffer.x) yBase=\(buffer.yBase) yDisp=\(buffer.yDisp) scrollTop=\(scrollTop) scrollBottom=\(scrollBottom) linesCount=\(lines.count) hasScrollback=\(hasScrollback) alt=\(isCurrentBufferAlternate)")
+
+        // --- Scrollback dedup (TUI re-render guard) -----------------------------------------------
+        // When `scroll()` is about to push the top viewport row into scrollback, compare it to the
+        // most recent scrollback row. If they are identical we are looking at the tail of a TUI
+        // re-render (banner / status-line / streaming frame header that claude/codex repaints every
+        // frame). Pushing would accumulate duplicate rows in history — instead rotate viewport rows
+        // in place so the scroll is visually correct but scrollback does not grow.
+        //
+        // This is purely content-driven: no timing heuristic, no CUU coupling. Unique real content
+        // cannot accidentally be suppressed.
+        if !isCurrentBufferAlternate,
+           scrollTop == 0,
+           !(marginMode && (bMarginLeft > 0 || bMarginRight < cols - 1)),
+           buffer.yBase > 0 {
+            let topRow = buffer.yBase
+            let prevScrollbackRow = buffer.yBase - 1
+            let bottomRow = buffer.yBase + scrollBottom
+            if topRow < lines.count,
+               prevScrollbackRow >= 0,
+               prevScrollbackRow < lines.count,
+               bottomRow < lines.count,
+               bufferLinesVisuallyEqual(lines[topRow], lines[prevScrollbackRow], cols: cols) {
+                let regionHeight = bottomRow - topRow + 1
+                if regionHeight > 1 {
+                    for i in 0..<(regionHeight - 1) {
+                        let src = lines[topRow + i + 1]
+                        let dst = lines[topRow + i]
+                        dst.copyFrom(src, srcCol: 0, dstCol: 0, len: cols)
+                        dst.isWrapped = src.isWrapped
+                        buffer.clearImagesFromLine(at: topRow + i)
+                        dst.renderMode = src.renderMode
+                    }
+                }
+                let ea = eraseAttr()
+                let bottomLine = lines[bottomRow]
+                bottomLine.fill(with: CharData(attribute: ea), atCol: 0, len: cols)
+                bottomLine.isWrapped = isWrapped
+                buffer.clearImagesFromLine(at: bottomRow)
+                bottomLine.renderMode = .single
+                updateRange(startLine: scrollTop, endLine: scrollBottom)
+                TuiDebug.log("DEDUP", "row=\(topRow) yBase=\(buffer.yBase) linesCount=\(lines.count)")
+                return
+            }
+        }
+        // -----------------------------------------------------------------------------------------
 
         var newLine = blankLine
         if newLine.count != cols || newLine [0].attribute != eraseAttr () {
