@@ -2072,7 +2072,6 @@ open class Terminal {
         let buffer = self.buffer
         var top = buffer.scrollTop
 
-        let yBefore = buffer.y
         if buffer.y < top {
             top = 0
         }
@@ -2085,7 +2084,6 @@ open class Terminal {
         if buffer.x >= cols {
                 buffer.x -= 1
         }
-        TuiDebug.log("CUU", "param=\(param) yBefore=\(yBefore) yAfter=\(buffer.y) x=\(buffer.x) yBase=\(buffer.yBase) scrollTop=\(buffer.scrollTop) scrollBottom=\(buffer.scrollBottom) alt=\(isCurrentBufferAlternate)")
     }
     
     //
@@ -5205,7 +5203,6 @@ open class Terminal {
         let bMarginLeft = buffer.marginLeft
         let bMarginRight = buffer.marginRight
         let hasScrollback = buffer.hasScrollback
-        TuiDebug.log("SCROLL", "isWrapped=\(isWrapped) y=\(buffer.y) x=\(buffer.x) yBase=\(buffer.yBase) yDisp=\(buffer.yDisp) scrollTop=\(scrollTop) scrollBottom=\(scrollBottom) linesCount=\(lines.count) hasScrollback=\(hasScrollback) alt=\(isCurrentBufferAlternate)")
 
         // --- Scrollback dedup (TUI re-render guard) -----------------------------------------------
         // When `scroll()` is about to push the top viewport row into scrollback, compare it to the
@@ -5246,7 +5243,6 @@ open class Terminal {
                 buffer.clearImagesFromLine(at: bottomRow)
                 bottomLine.renderMode = .single
                 updateRange(startLine: scrollTop, endLine: scrollBottom)
-                TuiDebug.log("DEDUP", "row=\(topRow) yBase=\(buffer.yBase) linesCount=\(lines.count)")
                 return
             }
         }
