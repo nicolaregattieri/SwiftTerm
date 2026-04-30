@@ -175,6 +175,7 @@ extension TerminalView {
         terminal.backgroundColor = Color.defaultBackground
         terminal.foregroundColor = Color.defaultForeground
         selection = SelectionService(terminal: terminal)
+        search = SearchService(terminal: terminal)
     }
     
     /// This function computes the new columns and rows for the terminal when a pixel-size changes
