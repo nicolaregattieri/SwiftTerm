@@ -366,14 +366,20 @@ open class Terminal {
         guard normalBuffer.lines.count > normalBuffer.rows else { return }
         if altScrollPeekActive { return }
         altScrollPeekActive = true
-        // Park yDisp at the very bottom of the normal scrollback so the next scroll-up
-        // step moves us into history rather than starting somewhere mid-buffer.
-        normalBuffer.yDisp = max(0, normalBuffer.lines.count - normalBuffer.rows)
+        // Park yDisp at the bottom of the normal buffer — yBase marks the last row
+        // the normal buffer had written before DECSET 1049 switched us to alt. The
+        // first scroll-up tick will move into history from there.
+        normalBuffer.yDisp = normalBuffer.yBase
     }
 
-    /// Leave peek mode. The next render reverts to the alt buffer.
+    /// Leave peek mode. The next render reverts to the alt buffer with the
+    /// viewport snapped to the bottom (yBase) so the TUI is fully visible again.
     public func exitAltScrollPeek() {
         altScrollPeekActive = false
+        // Snap the alt buffer back to the bottom in case anything drifted it.
+        altBuffer.yDisp = altBuffer.yBase
+        // Mark every row dirty so the next refresh fully repaints the alt buffer.
+        refresh(startRow: 0, endRow: rows - 1)
     }
 
     /// Reports the current scrollback line capacity of the normal buffer.
@@ -5660,11 +5666,14 @@ open class Terminal {
     {
         if altScrollPeekActive && isCurrentBufferAlternate {
             // Driving scroll on the peeked normal buffer instead of the alt buffer.
-            normalBuffer.yDisp = newValue
-            let maxY = max(0, normalBuffer.lines.count - normalBuffer.rows)
-            if newValue >= maxY {
-                // Reached the bottom of normal scrollback → drop peek, alt buffer takes over again.
+            // Bottom = yBase (last row the normal buffer wrote before alt took over).
+            let clamped = min(newValue, normalBuffer.yBase)
+            normalBuffer.yDisp = max(0, clamped)
+            if newValue >= normalBuffer.yBase {
+                // Reached the bottom of normal content → drop peek, alt buffer takes over again.
                 altScrollPeekActive = false
+                altBuffer.yDisp = altBuffer.yBase
+                refresh(startRow: 0, endRow: rows - 1)
             }
             return
         }
