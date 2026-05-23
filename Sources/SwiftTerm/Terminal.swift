@@ -332,15 +332,65 @@ open class Terminal {
     private var synchronizedOutputTimeoutItem: DispatchWorkItem?
 
     var displayBuffer: Buffer {
-        synchronizedOutputBuffer ?? buffer
+        // While the user is scrolling up inside an alt-buffer TUI (claude/vim/less/etc.),
+        // route render reads to the normal buffer so they can see the scrollback that
+        // existed before the TUI took over. Writes still target `buffer` (the alt buffer),
+        // so the TUI keeps redrawing into its own screen untouched.
+        if altScrollPeekActive && isCurrentBufferAlternate {
+            return normalBuffer
+        }
+        return synchronizedOutputBuffer ?? buffer
     }
 
     var isDisplayBufferAlternate: Bool {
-        synchronizedOutputBuffer != nil ? synchronizedOutputBufferIsAlternate : isCurrentBufferAlternate
+        if altScrollPeekActive && isCurrentBufferAlternate {
+            return false
+        }
+        return synchronizedOutputBuffer != nil ? synchronizedOutputBufferIsAlternate : isCurrentBufferAlternate
     }
-    
+
     public var isCurrentBufferAlternate: Bool {
         buffer === altBuffer
+    }
+
+    /// True while the user is peeking the normal-buffer scrollback from within an
+    /// alt-buffer TUI session. Only the render/scroll paths react to this; writes,
+    /// resize, and dedup all behave as if peek were off.
+    public private(set) var altScrollPeekActive: Bool = false
+
+    /// Enter peek mode: render the normal buffer's scrollback while alt buffer remains
+    /// the active write target. Caller should refresh the display afterwards.
+    public func enterAltScrollPeek() {
+        guard isCurrentBufferAlternate else { return }
+        guard normalBuffer.hasScrollback else { return }
+        guard normalBuffer.lines.count > normalBuffer.rows else { return }
+        if altScrollPeekActive { return }
+        altScrollPeekActive = true
+        // Park yDisp at the bottom of the normal buffer — yBase marks the last row
+        // the normal buffer had written before DECSET 1049 switched us to alt. The
+        // first scroll-up tick will move into history from there.
+        normalBuffer.yDisp = normalBuffer.yBase
+    }
+
+    /// Leave peek mode. The next render reverts to the alt buffer with the
+    /// viewport snapped to the bottom (yBase) so the TUI is fully visible again.
+    public func exitAltScrollPeek() {
+        altScrollPeekActive = false
+        // Snap the alt buffer back to the bottom in case anything drifted it.
+        altBuffer.yDisp = altBuffer.yBase
+        // Mark every row dirty so the next refresh fully repaints the alt buffer.
+        refresh(startRow: 0, endRow: rows - 1)
+    }
+
+    /// Reports the current scrollback line capacity of the normal buffer.
+    /// Mostly for diagnostics — does NOT include the visible viewport rows.
+    public var normalScrollbackCapacity: Int {
+        return max(0, normalBuffer.lines.maxLength - normalBuffer.rows)
+    }
+
+    /// Reports current normal-buffer line counts for diagnostics.
+    public var normalBufferDiagnostics: (lines: Int, maxLength: Int, rows: Int, scrollback: Int?) {
+        return (normalBuffer.lines.count, normalBuffer.lines.maxLength, normalBuffer.rows, normalBuffer.scrollback)
     }
     
     // Whether the terminal is operating in application keypad mode
@@ -5614,6 +5664,19 @@ open class Terminal {
 
     func setViewYDisp (_ newValue: Int)
     {
+        if altScrollPeekActive && isCurrentBufferAlternate {
+            // Driving scroll on the peeked normal buffer instead of the alt buffer.
+            // Bottom = yBase (last row the normal buffer wrote before alt took over).
+            let clamped = min(newValue, normalBuffer.yBase)
+            normalBuffer.yDisp = max(0, clamped)
+            if newValue >= normalBuffer.yBase {
+                // Reached the bottom of normal content → drop peek, alt buffer takes over again.
+                altScrollPeekActive = false
+                altBuffer.yDisp = altBuffer.yBase
+                refresh(startRow: 0, endRow: rows - 1)
+            }
+            return
+        }
         buffer.yDisp = newValue
         synchronizedOutputBuffer?.yDisp = newValue
     }
