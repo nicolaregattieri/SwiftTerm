@@ -375,6 +375,17 @@ open class Terminal {
     public func exitAltScrollPeek() {
         altScrollPeekActive = false
     }
+
+    /// Reports the current scrollback line capacity of the normal buffer.
+    /// Mostly for diagnostics — does NOT include the visible viewport rows.
+    public var normalScrollbackCapacity: Int {
+        return max(0, normalBuffer.lines.maxLength - normalBuffer.rows)
+    }
+
+    /// Reports current normal-buffer line counts for diagnostics.
+    public var normalBufferDiagnostics: (lines: Int, maxLength: Int, rows: Int, scrollback: Int?) {
+        return (normalBuffer.lines.count, normalBuffer.lines.maxLength, normalBuffer.rows, normalBuffer.scrollback)
+    }
     
     // Whether the terminal is operating in application keypad mode
     var applicationKeypad : Bool = false
